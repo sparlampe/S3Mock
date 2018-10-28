@@ -346,6 +346,14 @@ class FileStoreController {
       final List<BucketContents> contents = getBucketContents(bucketName, prefix);
       List<BucketContents> filteredContents = getFilteredBucketContents(contents, startAfter);
 
+      Collections.sort(filteredContents, new Comparator<BucketContents>() {
+        @Override
+        public int compare(BucketContents lhs, BucketContents rhs) {
+          // -1 - less than, 1 - greater than, 0 - equal, all inversed for descending
+          return String.CASE_INSENSITIVE_ORDER.compare(lhs.getKey(),rhs.getKey());
+        }
+      });
+
       final Set<String> commonPrefixes = new HashSet<>();
       if (delimiter != null) {
         collapseCommonPrefixes(prefix, delimiter, filteredContents, commonPrefixes);
@@ -354,13 +362,12 @@ class FileStoreController {
       String nextContinuationToken = null;
       boolean isTruncated = false;
 
-      int itemsToSkipForThisRequest = 0;
-
       if (continuationToken != null) {
-        itemsToSkipForThisRequest = Integer.parseInt(
-            fileStorePagingStateCache.get(continuationToken).get().toString());
-        filteredContents = filteredContents.subList(itemsToSkipForThisRequest,
-            filteredContents.size());
+        String continuationKey = fileStorePagingStateCache.get(continuationToken).get().toString();
+        filteredContents = filteredContents
+                .stream()
+                .filter(p -> p.getKey().compareTo(continuationKey) > 0)
+                .collect(Collectors.toList());
         fileStorePagingStateCache.evict(continuationToken);
       }
 
@@ -369,7 +376,7 @@ class FileStoreController {
         isTruncated = true;
         nextContinuationToken = UUID.randomUUID().toString();
         fileStorePagingStateCache.put(nextContinuationToken,
-            String.valueOf(itemsToSkipForThisRequest + maxKeys));
+                filteredContents.get(maxKeys - 1).getKey());
         filteredContents = filteredContents.subList(0, maxKeys);
       }
 
